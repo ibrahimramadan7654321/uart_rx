@@ -119,13 +119,13 @@ module uart_rx_tb;
   // Test Scenarios
   initial begin
     // Reset
-    rst = 1;
+    rst = 0;
     RX_IN = 1;
     prescale = 16;   
     PAR_EN = 1;
     PAR_TYP = 0;
     #(50);
-    rst = 0;
+    rst = 1;
 
     // 1) Correct frame
     $display("Test 1: Correct Frame");
