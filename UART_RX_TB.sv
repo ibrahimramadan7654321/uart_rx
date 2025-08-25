@@ -91,28 +91,44 @@ module uart_rx_tb;
     input       expect_par_err;
     input       expect_stop_err;
     begin
-      // wait up to two frame lengths for Data_Valid
-      begin : wait_block
-        integer timeout;
-        timeout = 0;
-        while (Data_Valid !== expect_valid && timeout < (prescale*24)) begin
+      integer to;
+      bit dv_seen;
+      reg [7:0] data_at_dv;
+      dv_seen    = 1'b0;
+      data_at_dv = 8'h00;
+      if (expect_valid) begin
+        // Wait up to ~2.5 frames for a DV pulse, capture data at that moment
+        for (to = 0; to < prescale*40; to = to + 1) begin
           @(posedge clk);
-          timeout = timeout + 1;
+          if (Data_Valid === 1'b1) begin
+            dv_seen    = 1'b1;
+            data_at_dv = P_DATA;
+            @(posedge clk);
+            break;
+          end
         end
+        if (!dv_seen)
+          $display("FAIL: Data_Valid did not assert within timeout");
+        if (dv_seen && data_at_dv !== expected_data)
+          $display("FAIL: Data mismatch. Got %h expected %h", data_at_dv, expected_data);
+        if (Parity_Error !== 1'b0)
+          $display("FAIL: Parity_Error should be 0 on valid frame. Got %b", Parity_Error);
+        if (Stop_Error !== 1'b0)
+          $display("FAIL: Stop_Error should be 0 on valid frame. Got %b", Stop_Error);
+        if (dv_seen && (data_at_dv==expected_data) && (Parity_Error==1'b0) && (Stop_Error==1'b0))
+          $display("PASS ✅ data=%h", expected_data);
+      end else begin
+        // In error cases we expect no DV. Wait longer and check flags
+        for (to = 0; to < prescale*64; to = to + 1) @(posedge clk);
+        if (Data_Valid !== 1'b0)
+          $display("FAIL: Data_Valid asserted unexpectedly");
+        if (Parity_Error !== expect_par_err)
+          $display("FAIL: Parity_Error mismatch. Got %b expected %b", Parity_Error, expect_par_err);
+        if (Stop_Error !== expect_stop_err)
+          $display("FAIL: Stop_Error mismatch. Got %b expected %b", Stop_Error, expect_stop_err);
+        if ((Data_Valid==1'b0) && (Parity_Error==expect_par_err) && (Stop_Error==expect_stop_err))
+          $display("PASS ✅ error case data=%h", expected_data);
       end
-      if (Data_Valid !== expect_valid) 
-        $display("FAIL: Data_Valid mismatch. Got %b expected %b", Data_Valid, expect_valid);
-      if (P_DATA !== expected_data && expect_valid)
-        $display("FAIL: Data mismatch. Got %h expected %h", P_DATA, expected_data);
-      if (Parity_Error !== expect_par_err)
-        $display("FAIL: Parity_Error mismatch. Got %b expected %b", Parity_Error, expect_par_err);
-      if (Stop_Error !== expect_stop_err)
-        $display("FAIL: Stop_Error mismatch. Got %b expected %b", Stop_Error, expect_stop_err);
-      if ((Data_Valid==expect_valid) &&
-          (P_DATA==expected_data || !expect_valid) &&
-          (Parity_Error==expect_par_err) &&
-          (Stop_Error==expect_stop_err))
-        $display("PASS ✅ data=%h", expected_data);
     end
   endtask
 
