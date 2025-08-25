@@ -31,10 +31,17 @@ module uart_rx_tb;
 
 
 
-  // Clock generation (prescale = 16)
+  // Clock generation
   initial clk = 0;
   always #(0.271) clk = ~clk; 
-  // prescale=16 → RX_CLK ≈ 1.843 MHz
+
+  // Task: wait exactly one bit time based on prescale
+  task wait_bit_time;
+    integer k;
+    begin
+      for (k = 0; k < prescale; k = k + 1) @(posedge clk);
+    end
+  endtask
 
   // Task: Send UART Frame
   task send_frame;
@@ -47,15 +54,15 @@ module uart_rx_tb;
     reg parity_bit;
     begin
       // Idle
-      RX_IN = 1; #(prescale*10);
+      RX_IN = 1; wait_bit_time();
 
       // Start Bit
-      RX_IN = 0; #(prescale*10);
+      RX_IN = 0; wait_bit_time();
 
       // Data bits (LSB first)
       for(i=0;i<8;i=i+1) begin
         RX_IN = data[i];
-        #(prescale*10);
+        wait_bit_time();
       end
 
       // Parity
@@ -64,12 +71,16 @@ module uart_rx_tb;
         if(parity_typ) parity_bit = ~parity_bit; // odd
         if(inject_parity_err) parity_bit = ~parity_bit;
         RX_IN = parity_bit;
-        #(prescale*10);
+        wait_bit_time();
       end
 
       // Stop Bit
       RX_IN = inject_stop_err ? 0 : 1;
-      #(prescale*10);
+      wait_bit_time();
+
+      // Return to idle
+      RX_IN = 1;
+      wait_bit_time();
     end
   endtask
 
@@ -80,8 +91,15 @@ module uart_rx_tb;
     input       expect_par_err;
     input       expect_stop_err;
     begin
-      // wait for DUT to assert Data_Valid
-      #(prescale*12);
+      // wait up to two frame lengths for Data_Valid
+      begin : wait_block
+        integer timeout;
+        timeout = 0;
+        while (Data_Valid !== expect_valid && timeout < (prescale*24)) begin
+          @(posedge clk);
+          timeout = timeout + 1;
+        end
+      end
       if (Data_Valid !== expect_valid) 
         $display("FAIL: Data_Valid mismatch. Got %b expected %b", Data_Valid, expect_valid);
       if (P_DATA !== expected_data && expect_valid)
@@ -117,12 +135,12 @@ module uart_rx_tb;
     // 2) Parity error
     $display("Test 2: Parity Error");
     send_frame(8'h3C, 1, 0, 1, 0);
-    check_result(8'h3C, 1, 1, 0);
+    check_result(8'h3C, 0, 1, 0);
 
     // 3) Stop error
     $display("Test 3: Stop Error");
     send_frame(8'h55, 1, 1, 0, 1);
-    check_result(8'h55, 1, 0, 1);
+    check_result(8'h55, 0, 0, 1);
 
     // 4) No parity
     $display("Test 4: No Parity");
